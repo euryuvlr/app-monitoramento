@@ -183,7 +183,6 @@ class LinkedInCompetitorMonitor:
             return []
         
         print(f"\n📊 {company_url.split('/')[-2]}")
-        print(f"🔍 Status da página: {self.check_page_status()}")
         
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
@@ -193,126 +192,171 @@ class LinkedInCompetitorMonitor:
             print(f"📍 Acessando URL: {company_url}")
             self.page.goto(company_url)
             time.sleep(5)
-            print(f"📍 URL atual: {self.page.url}")
-            print(f"📄 Título: {self.page.title()}")
             
-            posts_inicial = self.page.query_selector_all("li[data-urn], article.feed-shared-update-v2, div.occludable-update")
-            print(f"🔍 Posts encontrados na página inicial: {len(posts_inicial)}")
-            
+            # TENTATIVA 1: Procurar por links de posts
             try:
-                posts_link = self.page.query_selector("a[href*='posts/']")
-                if posts_link:
-                    print(f"✅ Link 'posts' encontrado: {posts_link.get_attribute('href')}")
-                    posts_link.click()
-                    print("✅ Aba 'posts' clicada")
-                else:
-                    recent_link = self.page.query_selector("a[href*='recent-activity']")
-                    if recent_link:
-                        print(f"✅ Link 'recent-activity' encontrado: {recent_link.get_attribute('href')}")
-                        recent_link.click()
-                        print("✅ Aba 'recent-activity' clicada")
-                    else:
-                        print("⚠️ Nenhum link de posts encontrado. Tentando URL direta...")
-                        posts_url = company_url.rstrip('/') + "/posts/?feedView=all"
-                        print(f"📍 URL direta: {posts_url}")
-                        self.page.goto(posts_url)
+                # Lista de possíveis seletores para a aba de posts
+                post_tab_selectors = [
+                    "a[href*='posts/']",
+                    "a[href*='recent-activity']",
+                    "a:has-text('Posts')",
+                    "a:has-text('Publicações')",
+                    "button:has-text('Posts')",
+                    "button:has-text('Publicações')"
+                ]
+                
+                tab_found = False
+                for selector in post_tab_selectors:
+                    tab = self.page.query_selector(selector)
+                    if tab:
+                        print(f"✅ Aba encontrada com seletor: {selector}")
+                        tab.click()
+                        tab_found = True
+                        break
+                
+                if not tab_found:
+                    print("⚠️ Nenhuma aba de posts encontrada. Tentando URL direta...")
+                    posts_url = company_url.rstrip('/') + "/posts/?feedView=all"
+                    self.page.goto(posts_url)
             except Exception as e:
                 print(f"⚠️ Erro ao clicar na aba: {e}")
+                posts_url = company_url.rstrip('/') + "/posts/?feedView=all"
+                self.page.goto(posts_url)
             
             time.sleep(5)
             print(f"📍 URL após navegação: {self.page.url}")
             
+            # TENTATIVA 2: Rolar a página para carregar posts
             last_height = self.page.evaluate("document.body.scrollHeight")
-            print(f"📏 Altura inicial da página: {last_height}")
-            
             scroll_attempts = 0
-            max_scrolls = 8
+            max_scrolls = 10
             
             while posts_found < max_posts and scroll_attempts < max_scrolls:
-                print(f"⬇️ Rolando página (tentativa {scroll_attempts + 1})...")
+                print(f"⬇️ Rolando página (tentativa {scroll_attempts + 1}/{max_scrolls})...")
                 self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(3)
                 
-                posts = self.page.query_selector_all("li[data-urn], article.feed-shared-update-v2, div.occludable-update")
-                print(f"🔄 Total de elementos encontrados após rolagem: {len(posts)}")
+                # TENTATIVA 3: Múltiplos seletores para posts
+                post_selectors = [
+                    "li[data-urn]",
+                    "article.feed-shared-update-v2",
+                    "div.occludable-update",
+                    "div.feed-shared-update-v2",
+                    ".feed-shared-update-v2",
+                    "[data-urn]",
+                    ".update-components-article"
+                ]
                 
-                for post in posts[posts_found:]:
+                all_posts = []
+                for selector in post_selectors:
+                    posts = self.page.query_selector_all(selector)
+                    if posts:
+                        print(f"🔍 Seletor '{selector}' encontrou {len(posts)} elementos")
+                        all_posts.extend(posts)
+                
+                # Remover duplicatas (por texto)
+                unique_posts = []
+                seen_texts = set()
+                for post in all_posts:
                     try:
-                        post_text = post.inner_text()
-                        print(f"  📝 Texto completo do post: {post_text[:200]}...")
-                        
+                        text = post.inner_text()[:100]
+                        if text not in seen_texts:
+                            seen_texts.add(text)
+                            unique_posts.append(post)
+                    except:
+                        continue
+                
+                print(f"🔄 Total de posts únicos encontrados: {len(unique_posts)}")
+                
+                for post in unique_posts[posts_found:]:
+                    try:
+                        # TENTATIVA 4: Extrair data de vários lugares
                         date_text = None
-                        selectores = [
+                        date_selectors = [
                             "span.feed-shared-actor__sub-description",
                             "span.feed-shared-actor__sub-meta",
                             ".update-components-actor__sub-description",
-                            ".feed-shared-actor__sub-description"
+                            ".feed-shared-actor__sub-description",
+                            "span.t-black--light",
+                            ".visually-hidden"
                         ]
                         
-                        for selector in selectores:
-                            elem = post.query_selector(selector)
-                            if elem:
-                                elem_text = elem.inner_text()
-                                print(f"  🔍 Seletor '{selector}' retornou: '{elem_text}'")
-                                
-                                partes = re.split(r' • |\•|\|', elem_text)
-                                print(f"  🔪 Partes divididas: {partes}")
-                                
-                                if len(partes) >= 2:
-                                    candidato = partes[1].strip()
-                                    print(f"  📅 Candidato (parte 2): '{candidato}'")
-                                    if re.search(r'\d+\s*[a-záéíóú]', candidato):
-                                        date_text = candidato
-                                        print(f"  ✅ Data encontrada na parte 2: '{date_text}'")
-                                        break
-                                
-                                if not date_text:
-                                    for j, parte in enumerate(partes):
-                                        parte_clean = parte.strip()
-                                        print(f"    Parte {j}: '{parte_clean}'")
-                                        if re.search(r'\d+\s*[a-záéíóú]', parte_clean):
-                                            date_text = parte_clean
-                                            print(f"  ✅ Data encontrada na parte {j}: '{date_text}'")
-                                            break
-                                if date_text:
+                        for selector in date_selectors:
+                            date_elem = post.query_selector(selector)
+                            if date_elem:
+                                elem_text = date_elem.inner_text()
+                                # Procurar por padrões de data (números + letras)
+                                date_match = re.search(r'(\d+\s*[a-záéíóú]+)', elem_text.lower())
+                                if date_match:
+                                    date_text = date_match.group(1)
+                                    print(f"  ✅ Data encontrada: '{date_text}' (seletor: {selector})")
                                     break
                         
                         if not date_text:
-                            print("  ⚠️ Nenhuma data encontrada neste post")
+                            # Se não encontrou com seletores específicos, tenta no texto todo
+                            full_text = post.inner_text()
+                            date_match = re.search(r'(\d+\s*[a-záéíóú]+)', full_text.lower())
+                            if date_match:
+                                date_text = date_match.group(1)
+                                print(f"  ✅ Data encontrada no texto completo: '{date_text}'")
+                        
+                        if not date_text:
+                            print("  ⚠️ Nenhuma data encontrada")
                             continue
                         
                         post_date = self._parse_date(date_text)
-                        print(f"  📅 Data convertida: {post_date}")
-                        
                         if not post_date:
-                            print("  ⚠️ Data não reconhecida pelo parser")
+                            print(f"  ⚠️ Data não reconhecida: '{date_text}'")
                             continue
                         
                         if post_date < cutoff:
                             print(f"  ⏹️ Post antigo ({date_text}) - parando coleta")
                             return posts_data
                         
+                        # Extrair conteúdo
                         content = ""
-                        content_el = post.query_selector("span.break-words, div.feed-shared-inline-show-more-text span")
-                        if content_el:
-                            content = content_el.inner_text()[:500]
-                            print(f"  📝 Conteúdo extraído: {content[:100]}...")
-                        else:
-                            print("  ⚠️ Conteúdo não encontrado")
+                        content_selectors = [
+                            "span.break-words",
+                            "div.feed-shared-inline-show-more-text span",
+                            "div.feed-shared-text span",
+                            ".feed-shared-text"
+                        ]
                         
+                        for selector in content_selectors:
+                            content_el = post.query_selector(selector)
+                            if content_el:
+                                content = content_el.inner_text()[:500]
+                                break
+                        
+                        # Likes
                         likes = 0
-                        likes_el = post.query_selector("span.social-details-social-counts__reactions-count")
-                        if likes_el:
-                            likes_text = likes_el.inner_text()
-                            likes = self._extract_number(likes_text)
-                            print(f"  👍 Likes: {likes} (raw: '{likes_text}')")
+                        likes_selectors = [
+                            "span.social-details-social-counts__reactions-count",
+                            "button.social-details-social-counts__reactions-count",
+                            "[data-anonymize='reaction-count']"
+                        ]
                         
+                        for selector in likes_selectors:
+                            likes_el = post.query_selector(selector)
+                            if likes_el:
+                                likes_text = likes_el.inner_text()
+                                likes = self._extract_number(likes_text)
+                                break
+                        
+                        # Comentários
                         comments = 0
-                        comments_el = post.query_selector("li.social-details-social-counts__comments button")
-                        if comments_el:
-                            comments_text = comments_el.inner_text()
-                            comments = self._extract_number(comments_text)
-                            print(f"  💬 Comentários: {comments} (raw: '{comments_text}')")
+                        comments_selectors = [
+                            "li.social-details-social-counts__comments button",
+                            "button[aria-label*='comment']",
+                            "[data-anonymize='comment-count']"
+                        ]
+                        
+                        for selector in comments_selectors:
+                            comments_el = post.query_selector(selector)
+                            if comments_el:
+                                comments_text = comments_el.inner_text()
+                                comments = self._extract_number(comments_text)
+                                break
                         
                         posts_data.append({
                             'empresa': company_url.split('/')[-2].split('?')[0],
@@ -333,7 +377,6 @@ class LinkedInCompetitorMonitor:
                         continue
                 
                 new_height = self.page.evaluate("document.body.scrollHeight")
-                print(f"📏 Altura da página: {last_height} -> {new_height}")
                 if new_height == last_height:
                     scroll_attempts += 1
                     print(f"⏳ Fim da página alcançado (tentativa {scroll_attempts}/{max_scrolls})")
