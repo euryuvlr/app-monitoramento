@@ -64,6 +64,8 @@ class LinkedInCompetitorMonitor:
     def _parse_date(self, date_text):
         date_text = date_text.lower().strip()
         now = datetime.now()
+
+        # Padrão para abreviaturas simples (1d, 2 sem, 3 m)
         padrao_abrev = r"^(\d+)\s*([a-záéíóú]+)$"
         match = re.search(padrao_abrev, date_text)
         if match:
@@ -79,6 +81,8 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num * 365)
             if unid in ['h', 'hora', 'horas']:
                 return now - timedelta(hours=num)
+
+        # Padrão completo em português
         padrao_port = r"há\s+(\d+)\s+(hora|horas|dia|dias|semana|semanas|mês|meses|ano|anos)"
         match = re.search(padrao_port, date_text)
         if match:
@@ -94,6 +98,8 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*30)
             if unid in ["ano", "anos"]:
                 return now - timedelta(days=num*365)
+
+        # Padrão inglês
         padrao_eng = r"(\d+)\s+(hour|hours|day|days|week|weeks|month|months|year|years)\s+ago"
         match = re.search(padrao_eng, date_text)
         if match:
@@ -109,6 +115,7 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*30)
             if unid in ["year", "years"]:
                 return now - timedelta(days=num*365)
+
         return None
 
     def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
@@ -118,19 +125,27 @@ class LinkedInCompetitorMonitor:
         posts_found = 0
         try:
             self.driver.get(company_url)
-            time.sleep(2)
+            time.sleep(3)
+            print(f"📍 URL atual: {self.driver.current_url}")
+            print(f"📄 Título da página: {self.driver.title}")
             
+            # Tentar encontrar a aba de posts
             try:
                 posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'posts/')]")))
                 posts_tab.click()
-            except:
+                print("✅ Aba 'posts' encontrada e clicada")
+            except Exception as e:
+                print(f"⚠️ Erro ao clicar em 'posts': {e}")
                 try:
                     posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'recent-activity')]")))
                     posts_tab.click()
-                except:
+                    print("✅ Aba 'recent-activity' encontrada e clicada")
+                except Exception as e:
+                    print(f"⚠️ Erro ao clicar em 'recent-activity': {e}")
                     print("⚠️ Usando URL direta...")
                     self.driver.get(company_url.rstrip('/') + "/posts/?feedView=all")
-            time.sleep(2)
+            time.sleep(3)
+            print(f"📍 URL após navegação: {self.driver.current_url}")
 
             last_height = self.driver.execute_script("return document.body.scrollHeight")
             scroll_attempts = 0
@@ -138,56 +153,86 @@ class LinkedInCompetitorMonitor:
 
             while posts_found < max_posts and scroll_attempts < max_scrolls:
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(1.5)
+                time.sleep(2)
 
                 posts = self.driver.find_elements(By.CSS_SELECTOR,
-                    "li[data-urn], article.feed-shared-update-v2, div.occludable-update")
+                    "li[data-urn], article.feed-shared-update-v2, div.occludable-update, div.feed-shared-update-v2")
+                print(f"🔄 Encontrados {len(posts)} elementos candidatos a post")
 
                 for post in posts[posts_found:]:
                     try:
+                        # Tentar extrair o texto completo do elemento que contém a data
                         date_text = None
-                        selectores_data = [
+                        
+                        # Procurar em vários seletores possíveis
+                        selectores = [
                             "span.feed-shared-actor__sub-description",
                             "span.feed-shared-actor__sub-meta",
                             "span.t-black--light span",
-                            ".update-components-actor__sub-description"
+                            ".update-components-actor__sub-description",
+                            ".feed-shared-actor__sub-description"
                         ]
-                        for seletor in selectores_data:
+                        
+                        for seletor in selectores:
                             try:
-                                elemento = post.find_element(By.CSS_SELECTOR, seletor)
-                                texto = elemento.text
-                                # Divide por separadores e pega a SEGUNDA parte (a data)
-                                partes = re.split(r' • |\•|\|', texto)
-                                if len(partes) >= 2:
-                                    candidato = partes[1].strip()
-                                    if (re.search(r'\d+\s*[a-záéíóú]', candidato) 
-                                        and len(candidato) < 20):
-                                        date_text = candidato
+                                elementos = post.find_elements(By.CSS_SELECTOR, seletor)
+                                for elem in elementos:
+                                    texto_completo = elem.text
+                                    print(f"  📝 Texto do seletor '{seletor}': '{texto_completo}'")
+                                    
+                                    # Dividir por separadores comuns
+                                    partes = re.split(r' • |\•|\|', texto_completo)
+                                    print(f"  🔪 Partes divididas: {partes}")
+                                    
+                                    # A data geralmente é a segunda parte após os seguidores
+                                    if len(partes) >= 2:
+                                        candidato = partes[1].strip()
+                                        if re.search(r'\d+\s*[a-záéíóú]', candidato) and len(candidato) < 20:
+                                            date_text = candidato
+                                            print(f"  ✅ Data encontrada: '{date_text}' (parte 2)")
+                                            break
+                                    
+                                    # Se não achou na parte 2, procura em todas as partes
+                                    if not date_text:
+                                        for parte in partes:
+                                            parte_clean = parte.strip()
+                                            if re.search(r'\d+\s*[a-záéíóú]', parte_clean) and len(parte_clean) < 20:
+                                                date_text = parte_clean
+                                                print(f"  ✅ Data encontrada: '{date_text}' (outra parte)")
+                                                break
+                                    if date_text:
                                         break
-                            except:
+                            except Exception as e:
                                 continue
                             if date_text:
                                 break
-
+                        
                         if not date_text:
+                            print(f"  ⚠️ Nenhuma data encontrada neste post")
                             continue
-
+                        
+                        # Converter a data
                         post_date = self._parse_date(date_text)
+                        print(f"  📅 Data convertida: {post_date} (raw: {date_text})")
+                        
                         if post_date is None:
+                            print(f"  ⚠️ Data não reconhecida pelo parser: '{date_text}'")
                             continue
-
+                        
                         if post_date < cutoff:
-                            print(f"⏹️ Post antigo ({date_text}). Parando.")
+                            print(f"⏹️ Post antigo ({date_text}). Parando coleta desta empresa.")
                             return posts_data
-
+                        
+                        # Extrair conteúdo
                         content = ""
                         try:
                             content_el = post.find_element(By.CSS_SELECTOR,
-                                "span.break-words, div.feed-shared-inline-show-more-text span")
+                                "span.break-words, div.feed-shared-inline-show-more-text span, div.feed-shared-text span")
                             content = content_el.text[:500]
                         except:
                             pass
-
+                        
+                        # Likes
                         likes = 0
                         try:
                             likes_el = post.find_element(By.CSS_SELECTOR,
@@ -195,7 +240,8 @@ class LinkedInCompetitorMonitor:
                             likes = self._extract_number(likes_el.text)
                         except:
                             pass
-
+                        
+                        # Comentários
                         comments = 0
                         try:
                             comm_el = post.find_element(By.CSS_SELECTOR,
@@ -203,7 +249,7 @@ class LinkedInCompetitorMonitor:
                             comments = self._extract_number(comm_el.text)
                         except:
                             pass
-
+                        
                         posts_data.append({
                             'empresa': company_url.split('/')[-2] if company_url.endswith('/') else company_url.split('/')[-1],
                             'data_raw': date_text,
@@ -211,25 +257,31 @@ class LinkedInCompetitorMonitor:
                             'likes': likes,
                             'comentarios': comments
                         })
-
+                        
                         posts_found += 1
-                        print(f"  ✅ {posts_found}/{max_posts} - {date_text}")
-
+                        print(f"  ✅ Post {posts_found}/{max_posts} adicionado - Data: {date_text}")
+                        
                         if posts_found >= max_posts:
                             break
-                    except Exception:
+                            
+                    except Exception as e:
+                        print(f"  ❌ Erro ao processar post: {e}")
                         continue
 
+                # Verificar fim da página
                 new_height = self.driver.execute_script("return document.body.scrollHeight")
                 if new_height == last_height:
                     scroll_attempts += 1
+                    print(f"⏳ Fim da página alcançado (tentativa {scroll_attempts}/{max_scrolls})")
                 else:
                     scroll_attempts = 0
                 last_height = new_height
 
-            print(f"✅ Coletados {len(posts_data)} posts")
+            print(f"✅ Coleta finalizada. Total de posts: {len(posts_data)}")
         except Exception as e:
             print(f"❌ Erro na coleta: {e}")
+            import traceback
+            traceback.print_exc()
 
         return posts_data
 
