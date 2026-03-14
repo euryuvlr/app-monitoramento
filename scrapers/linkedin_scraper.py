@@ -34,15 +34,61 @@ class LinkedInCompetitorMonitor:
         try:
             print("🔑 Fazendo login no LinkedIn...")
             self.driver.get("https://www.linkedin.com/login")
-            time.sleep(1.5)
+            time.sleep(2)
+            
+            # Preencher credenciais
             self.wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(self.email)
             self.driver.find_element(By.ID, "password").send_keys(self.password)
             self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
-            time.sleep(3)
-            print("✅ Login realizado!")
-            return True
+            
+            # Aguardar redirecionamento (pode levar alguns segundos)
+            time.sleep(5)
+            
+            # Verificar se o login foi bem-sucedido
+            current_url = self.driver.current_url
+            print(f"📍 URL após login: {current_url}")
+            
+            if "feed" in current_url:
+                print("✅ Login bem-sucedido! Página inicial carregada.")
+                return True
+            elif "checkpoint" in current_url:
+                print("⚠️ LinkedIn pediu verificação adicional (2FA).")
+                print("💡 Considere usar uma conta sem 2FA ou desabilitar temporariamente.")
+                return False
+            elif "authwall" in current_url:
+                print("⚠️ Redirecionado para authwall. Tentando acessar feed diretamente...")
+                self.driver.get("https://www.linkedin.com/feed/")
+                time.sleep(3)
+                if "feed" in self.driver.current_url:
+                    print("✅ Conseguiu acessar o feed após redirecionamento.")
+                    return True
+                else:
+                    print("❌ Não foi possível acessar o feed.")
+                    return False
+            else:
+                print(f"❌ URL inesperada: {current_url}")
+                # Salvar screenshot para diagnóstico
+                self.driver.save_screenshot("login_error.png")
+                return False
+                
         except Exception as e:
             print(f"❌ Erro no login: {e}")
+            return False
+
+    def _check_login(self):
+        """Verifica se ainda está logado"""
+        try:
+            print("🔍 Verificando sessão...")
+            self.driver.get("https://www.linkedin.com/feed/")
+            time.sleep(2)
+            if "feed" in self.driver.current_url:
+                print("✅ Sessão ativa.")
+                return True
+            else:
+                print(f"⚠️ Sessão expirada. URL atual: {self.driver.current_url}")
+                return False
+        except Exception as e:
+            print(f"❌ Erro ao verificar sessão: {e}")
             return False
 
     def _extract_number(self, text):
@@ -65,7 +111,7 @@ class LinkedInCompetitorMonitor:
         date_text = date_text.lower().strip()
         now = datetime.now()
 
-        # Padrão para abreviaturas simples (1d, 2 sem, 3 m)
+        # Padrão para abreviaturas (1d, 2 sem, 3 m)
         padrao_abrev = r"^(\d+)\s*([a-záéíóú]+)$"
         match = re.search(padrao_abrev, date_text)
         if match:
@@ -119,6 +165,14 @@ class LinkedInCompetitorMonitor:
         return None
 
     def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
+        # Verificar se ainda está logado antes de começar
+        if not self._check_login():
+            print("⚠️ Sessão expirada. Tentando refazer login...")
+            if not self.login():
+                print("❌ Falha ao restabelecer sessão. Abortando coleta.")
+                return []
+            print("✅ Sessão restabelecida com sucesso.")
+
         print(f"\n📊 {company_url.split('/')[-2]}")
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
@@ -128,6 +182,19 @@ class LinkedInCompetitorMonitor:
             time.sleep(3)
             print(f"📍 URL atual: {self.driver.current_url}")
             print(f"📄 Título da página: {self.driver.title}")
+            
+            # Verificar se está na página de autenticação
+            if "authwall" in self.driver.current_url:
+                print("⚠️ Detectado authwall. Tentando acessar feed para autenticar...")
+                self.driver.get("https://www.linkedin.com/feed/")
+                time.sleep(3)
+                if "feed" in self.driver.current_url:
+                    print("✅ Autenticado. Retornando à página da empresa...")
+                    self.driver.get(company_url)
+                    time.sleep(3)
+                else:
+                    print("❌ Não foi possível autenticar.")
+                    return []
             
             # Tentar encontrar a aba de posts
             try:
@@ -178,18 +245,17 @@ class LinkedInCompetitorMonitor:
                                 elementos = post.find_elements(By.CSS_SELECTOR, seletor)
                                 for elem in elementos:
                                     texto_completo = elem.text
-                                    print(f"  📝 Texto do seletor '{seletor}': '{texto_completo}'")
+                                    if not texto_completo:
+                                        continue
                                     
                                     # Dividir por separadores comuns
                                     partes = re.split(r' • |\•|\|', texto_completo)
-                                    print(f"  🔪 Partes divididas: {partes}")
                                     
                                     # A data geralmente é a segunda parte após os seguidores
                                     if len(partes) >= 2:
                                         candidato = partes[1].strip()
                                         if re.search(r'\d+\s*[a-záéíóú]', candidato) and len(candidato) < 20:
                                             date_text = candidato
-                                            print(f"  ✅ Data encontrada: '{date_text}' (parte 2)")
                                             break
                                     
                                     # Se não achou na parte 2, procura em todas as partes
@@ -198,31 +264,25 @@ class LinkedInCompetitorMonitor:
                                             parte_clean = parte.strip()
                                             if re.search(r'\d+\s*[a-záéíóú]', parte_clean) and len(parte_clean) < 20:
                                                 date_text = parte_clean
-                                                print(f"  ✅ Data encontrada: '{date_text}' (outra parte)")
                                                 break
                                     if date_text:
                                         break
-                            except Exception as e:
+                            except Exception:
                                 continue
                             if date_text:
                                 break
                         
                         if not date_text:
-                            print(f"  ⚠️ Nenhuma data encontrada neste post")
                             continue
-                        
-                        # Converter a data
+
                         post_date = self._parse_date(date_text)
-                        print(f"  📅 Data convertida: {post_date} (raw: {date_text})")
-                        
                         if post_date is None:
-                            print(f"  ⚠️ Data não reconhecida pelo parser: '{date_text}'")
                             continue
-                        
+
                         if post_date < cutoff:
                             print(f"⏹️ Post antigo ({date_text}). Parando coleta desta empresa.")
                             return posts_data
-                        
+
                         # Extrair conteúdo
                         content = ""
                         try:
@@ -231,7 +291,7 @@ class LinkedInCompetitorMonitor:
                             content = content_el.text[:500]
                         except:
                             pass
-                        
+
                         # Likes
                         likes = 0
                         try:
@@ -240,7 +300,7 @@ class LinkedInCompetitorMonitor:
                             likes = self._extract_number(likes_el.text)
                         except:
                             pass
-                        
+
                         # Comentários
                         comments = 0
                         try:
@@ -249,7 +309,7 @@ class LinkedInCompetitorMonitor:
                             comments = self._extract_number(comm_el.text)
                         except:
                             pass
-                        
+
                         posts_data.append({
                             'empresa': company_url.split('/')[-2] if company_url.endswith('/') else company_url.split('/')[-1],
                             'data_raw': date_text,
@@ -257,15 +317,14 @@ class LinkedInCompetitorMonitor:
                             'likes': likes,
                             'comentarios': comments
                         })
-                        
+
                         posts_found += 1
-                        print(f"  ✅ Post {posts_found}/{max_posts} adicionado - Data: {date_text}")
-                        
+                        print(f"  ✅ Post {posts_found}/{max_posts} - {date_text}")
+
                         if posts_found >= max_posts:
                             break
-                            
-                    except Exception as e:
-                        print(f"  ❌ Erro ao processar post: {e}")
+
+                    except Exception:
                         continue
 
                 # Verificar fim da página
