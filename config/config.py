@@ -1,7 +1,4 @@
-# Este arquivo é mantido para compatibilidade, mas as credenciais
-# serão carregadas dos secrets do Streamlit Cloud
-
-# Lista de concorrentes (pode ser mantida aqui se preferir)
+# Lista de concorrentes
 CONCORRENTES = [
     "https://www.linkedin.com/company/atento/",
     "https://www.linkedin.com/company/wearetpgroup/",

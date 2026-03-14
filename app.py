@@ -12,12 +12,17 @@ st.set_page_config(
     layout="wide"
 )
 
-# ========== CREDENCIAIS (INSERIDAS DIRETAMENTE) ==========
-LINKEDIN_EMAIL = "euowlie@gmail.com"
-LINKEDIN_PASSWORD = "Ryuvlr*963,@"
-GEMINI_API_KEY = "AIzaSyDQWWGMVcfZA6VW66iPruZk6Zh-BTR93wY"
+# ========== CREDENCIAIS (via variáveis de ambiente) ==========
+LINKEDIN_EMAIL = os.environ.get("LINKEDIN_EMAIL")
+LINKEDIN_PASSWORD = os.environ.get("LINKEDIN_PASSWORD")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Lista de empresas (mantida fixa)
+# Verificar se as variáveis foram carregadas
+if not LINKEDIN_EMAIL or not LINKEDIN_PASSWORD:
+    st.error("❌ Credenciais do LinkedIn não configuradas. Verifique as variáveis de ambiente no Railway.")
+    st.stop()
+
+# Lista de empresas (pode vir do config.py)
 EMPRESAS = [
     "https://www.linkedin.com/company/atento/",
     "https://www.linkedin.com/company/wearetpgroup/",
@@ -41,21 +46,17 @@ st.markdown("---")
 # ========== BOTÃO PRINCIPAL ==========
 if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=True):
     
-    # Container para mostrar o progresso
     status = st.empty()
     barra = st.progress(0)
     
     status.info("⏳ Iniciando monitoramento... Isso leva alguns minutos.")
     
-    # Criar uma pasta temporária para salvar o relatório
     os.makedirs("temp_reports", exist_ok=True)
     
-    # ===== PROGRESSO =====
     barra.progress(10)
     status.text("🔑 Fazendo login no LinkedIn...")
     time.sleep(2)
     
-    # Inicializar o monitor
     try:
         monitor = LinkedInCompetitorMonitor(
             email=LINKEDIN_EMAIL,
@@ -70,7 +71,6 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
             barra.progress(30)
             status.text("📥 Coletando posts das empresas...")
             
-            # Coletar posts
             todos_posts = []
             for i, url in enumerate(EMPRESAS):
                 status.text(f"📥 Processando {i+1}/{len(EMPRESAS)}: {url.split('/')[-2]}")
@@ -88,23 +88,12 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
                 barra.progress(70)
                 status.text("📊 Organizando dados...")
                 
-                # Criar DataFrame
                 df = pd.DataFrame(todos_posts)
                 
-                # Selecionar e renomear colunas
-                colunas_disponiveis = ['empresa', 'data_raw', 'conteudo', 'likes', 'comentarios']
-                colunas_existentes = [col for col in colunas_disponiveis if col in df.columns]
-                df = df[colunas_existentes]
-                
-                # Renomear para português
-                mapa_nomes = {
-                    'empresa': 'Concorrente',
-                    'data_raw': 'Data',
-                    'conteudo': 'Conteúdo',
-                    'likes': 'Likes',
-                    'comentarios': 'Comentários'
-                }
-                df = df.rename(columns=mapa_nomes)
+                # Selecionar colunas
+                colunas = ['empresa', 'data_raw', 'conteudo', 'likes', 'comentarios']
+                df = df[[c for c in colunas if c in df.columns]]
+                df.columns = ['Concorrente', 'Data', 'Conteúdo', 'Likes', 'Comentários']
                 
                 # Salvar Excel
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -114,11 +103,9 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
                 barra.progress(100)
                 status.success("✅ Relatório gerado com sucesso!")
                 
-                # Mostrar prévia
                 st.markdown("### 📋 Prévia do Relatório")
                 st.dataframe(df.head(10), use_container_width=True)
                 
-                # Botão de download
                 with open(filename, "rb") as f:
                     st.download_button(
                         label="📥 BAIXAR EXCEL COMPLETO",
@@ -127,7 +114,6 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
-                
     except Exception as e:
         st.error(f"❌ Erro durante execução: {str(e)}")
         try:
@@ -135,17 +121,13 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
         except:
             pass
 
-# ========== INSTRUÇÕES ==========
 with st.expander("📖 Como usar"):
     st.markdown("""
     1. Clique em **"GERAR RELATÓRIO AGORA"**
     2. Aguarde o processamento (cerca de 5-10 minutos)
     3. Visualize a prévia dos dados
     4. Faça o download do Excel completo
-    
-    O relatório contém posts dos últimos 7 dias de 13 concorrentes.
     """)
 
-# Rodapé
 st.markdown("---")
 st.markdown("🔒 Desenvolvido para AeC - Relacionamento com Responsabilidade")

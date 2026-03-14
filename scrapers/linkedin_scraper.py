@@ -2,10 +2,13 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 import time
 from datetime import datetime, timedelta
 import re
+import os
 
 class LinkedInCompetitorMonitor:
     def __init__(self, email, password, headless=True):
@@ -16,18 +19,19 @@ class LinkedInCompetitorMonitor:
 
     def _setup_driver(self, headless):
         options = Options()
-        # Configurações para Docker/Linux
-        options.add_argument("--headless=new")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        options.add_argument("--window-size=1920,1080")
-        
-        # Selenium Manager gerencia o driver automaticamente (Selenium 4.6+)
-        driver = webdriver.Chrome(options=options)
+        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        if headless:
+            options.add_argument("--headless=new")
+            options.add_argument("--window-size=1920,1080")
+        # Importante: no Linux, pode ser necessário definir o binário do Chrome
+        # options.binary_location = "/usr/bin/google-chrome"
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
 
@@ -35,7 +39,7 @@ class LinkedInCompetitorMonitor:
         try:
             print("🔑 Fazendo login no LinkedIn...")
             self.driver.get("https://www.linkedin.com/login")
-            time.sleep(2)
+            time.sleep(1.5)
             self.wait.until(EC.presence_of_element_located((By.ID, "username"))).send_keys(self.email)
             self.driver.find_element(By.ID, "password").send_keys(self.password)
             self.driver.find_element(By.XPATH, "//button[@type='submit']").click()
@@ -112,14 +116,15 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*365)
         return None
 
-    def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
-        print(f"Analisando {company_url.split('/')[-2]}")
+    def scrape_company_posts(self, company_url, max_posts=50, days_back=7):
+        print(f"\n📊 {company_url.split('/')[-2]}")
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
         posts_found = 0
         try:
             self.driver.get(company_url)
             time.sleep(2)
+            # Encontrar aba de posts
             try:
                 posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'posts/')]")))
                 posts_tab.click()
@@ -128,11 +133,14 @@ class LinkedInCompetitorMonitor:
                     posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'recent-activity')]")))
                     posts_tab.click()
                 except:
+                    print("⚠️ Usando URL direta...")
                     self.driver.get(company_url.rstrip('/') + "/posts/?feedView=all")
             time.sleep(2)
+
             last_height = self.driver.execute_script("return document.body.scrollHeight")
             scroll_attempts = 0
             max_scrolls = 8
+
             while posts_found < max_posts and scroll_attempts < max_scrolls:
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(1.5)
@@ -144,7 +152,8 @@ class LinkedInCompetitorMonitor:
                         selectores_data = [
                             "span.feed-shared-actor__sub-description",
                             "span.feed-shared-actor__sub-meta",
-                            "span.t-black--light span"
+                            "span.t-black--light span",
+                            ".update-components-actor__sub-description"
                         ]
                         for seletor in selectores_data:
                             try:
@@ -168,6 +177,7 @@ class LinkedInCompetitorMonitor:
                         if post_date is None:
                             continue
                         if post_date < cutoff:
+                            print(f"⏹️ Post antigo ({date_text}). Parando.")
                             return posts_data
                         content = ""
                         try:
@@ -192,12 +202,14 @@ class LinkedInCompetitorMonitor:
                             pass
                         posts_data.append({
                             'empresa': company_url.split('/')[-2] if company_url.endswith('/') else company_url.split('/')[-1],
-                            'data_raw': date_text,
+                            'data': post_date.strftime('%Y-%m-%d %H:%M'),
                             'conteudo': content,
                             'likes': likes,
-                            'comentarios': comments
+                            'comentarios': comments,
+                            'data_raw': date_text
                         })
                         posts_found += 1
+                        print(f"  ✅ {posts_found}/{max_posts} - {date_text}")
                         if posts_found >= max_posts:
                             break
                     except Exception:
@@ -208,11 +220,14 @@ class LinkedInCompetitorMonitor:
                 else:
                     scroll_attempts = 0
                 last_height = new_height
-            return posts_data
+            print(f"✅ Coletados {len(posts_data)} posts")
         except Exception as e:
-            print(f"Erro: {e}")
-            return posts_data
+            print(f"❌ Erro na coleta: {e}")
+        return posts_data
 
     def close(self):
         if self.driver:
-            self.driver.quit()
+            try:
+                self.driver.quit()
+            except:
+                os.system("taskkill /f /im chrome.exe 2>nul")
