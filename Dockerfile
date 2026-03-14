@@ -16,7 +16,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copiar o resto do código
 COPY . .
 
-# Criar pasta para relatórios e para dados persistentes
+# Criar pastas necessárias
 RUN mkdir -p temp_reports playwright_data
 
 # Expor a porta do Streamlit
