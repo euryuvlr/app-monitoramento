@@ -119,6 +119,7 @@ class LinkedInCompetitorMonitor:
         try:
             self.driver.get(company_url)
             time.sleep(2)
+            
             try:
                 posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'posts/')]")))
                 posts_tab.click()
@@ -155,18 +156,18 @@ class LinkedInCompetitorMonitor:
                             try:
                                 elemento = post.find_element(By.CSS_SELECTOR, seletor)
                                 texto = elemento.text
+                                # Divide por separadores e pega a SEGUNDA parte (a data)
                                 partes = re.split(r' • |\•|\|', texto)
-                                for parte in partes:
-                                    candidato = parte.strip()
+                                if len(partes) >= 2:
+                                    candidato = partes[1].strip()
                                     if (re.search(r'\d+\s*[a-záéíóú]', candidato) 
-                                        and "seguidor" not in candidato.lower()
                                         and len(candidato) < 20):
                                         date_text = candidato
                                         break
-                                if date_text:
-                                    break
                             except:
                                 continue
+                            if date_text:
+                                break
 
                         if not date_text:
                             continue
