@@ -2,13 +2,10 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 from datetime import datetime, timedelta
 import re
-import os
 
 class LinkedInCompetitorMonitor:
     def __init__(self, email, password, headless=True):
@@ -29,9 +26,8 @@ class LinkedInCompetitorMonitor:
         options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         options.add_argument("--window-size=1920,1080")
         
-        # Usar webdriver-manager para baixar e gerenciar o ChromeDriver automaticamente
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        # Selenium Manager gerencia o driver automaticamente (Selenium 4.6+)
+        driver = webdriver.Chrome(options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
 
