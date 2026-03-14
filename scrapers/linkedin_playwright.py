@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import re
 import os
 import json
+import streamlit as st
 
 class LinkedInCompetitorMonitor:
     def __init__(self, email, password, headless=True):
@@ -14,18 +15,16 @@ class LinkedInCompetitorMonitor:
         self.browser = None
         self.page = None
         self.context = None
+        self.user_data_dir = "./playwright_data"
+        os.makedirs(self.user_data_dir, exist_ok=True)
         self._setup_driver()
 
     def _setup_driver(self):
         """Inicializa o Playwright com suporte a sessão persistente"""
         self.playwright = sync_playwright().start()
         
-        # Configurar pasta para salvar sessão
-        user_data_dir = "./playwright_data"
-        os.makedirs(user_data_dir, exist_ok=True)
-        
         self.browser = self.playwright.chromium.launch_persistent_context(
-            user_data_dir,
+            self.user_data_dir,
             headless=self.headless,
             args=[
                 '--disable-blink-features=AutomationControlled',
@@ -37,57 +36,49 @@ class LinkedInCompetitorMonitor:
             viewport={'width': 1920, 'height': 1080}
         )
         
-        # Abrir uma nova página
         self.page = self.browser.new_page()
 
     def login(self):
-        """
-        FAÇA LOGIN MANUAL UMA ÚNICA VEZ.
-        Depois disso, a sessão será salva e reutilizada automaticamente.
-        """
-        print("="*50)
-        print("🔑 INSTRUÇÕES PARA LOGIN MANUAL")
-        print("="*50)
-        print("O LinkedIn está pedindo verificação (2FA/código).")
-        print("Por favor, faça o login manualmente no navegador que vai abrir.")
-        print("\nPassos:")
-        print("1. Digite seu email e senha NORMALMENTE")
-        print("2. Quando pedir o código de verificação, DIGITE")
-        print("3. Após entrar no feed, volte aqui e pressione ENTER")
-        print("="*50)
-        
-        # Abrir página de login
-        self.page.goto("https://www.linkedin.com/login")
-        time.sleep(2)
-        
-        # Pré-preencher email e senha (opcional, pode fazer manual)
+        """Verifica se já existe sessão válida"""
         try:
-            self.page.fill("#username", self.email)
-            self.page.fill("#password", self.password)
-            print("✅ Campos de email/senha preenchidos (confirme se estão corretos)")
+            self.page.goto("https://www.linkedin.com/feed/")
+            time.sleep(3)
+            if "feed" in self.page.url:
+                print("✅ Sessão existente encontrada!")
+                return True
+            return False
         except:
-            print("⚠️ Preencha email e senha manualmente")
-        
-        print("\n🖥️ FAÇA O LOGIN MANUALMENTE AGORA...")
-        input("⏸️  Pressione ENTER DEPOIS de fazer o login completo (já no feed) >>> ")
-        
-        # Verificar se está no feed
-        current_url = self.page.url
-        if "feed" in current_url:
-            print("✅ Login confirmado! Sessão salva para próximas execuções.")
+            return False
+
+    def login_manual(self, username, password):
+        """Faz login manual com as credenciais fornecidas"""
+        try:
+            print("🔑 Tentando login automático...")
+            self.page.goto("https://www.linkedin.com/login")
+            time.sleep(2)
             
-            # Salvar cookies explicitamente (já é persistente pelo user_data_dir)
-            cookies = self.context.cookies()
-            with open("linkedin_cookies_backup.json", "w") as f:
-                json.dump(cookies, f)
-            print("💾 Backup de cookies salvo!")
-            return True
-        else:
-            print(f"❌ Parece que você não está no feed. URL atual: {current_url}")
+            self.page.fill("#username", username)
+            self.page.fill("#password", password)
+            self.page.click("button[type='submit']")
+            
+            time.sleep(5)
+            
+            # Verificar se precisa de 2FA
+            if "checkpoint" in self.page.url:
+                print("⚠️ Verificação em duas etapas detectada.")
+                return "2FA"
+            elif "feed" in self.page.url:
+                print("✅ Login automático bem-sucedido!")
+                return True
+            else:
+                print(f"❌ URL inesperada: {self.page.url}")
+                return False
+        except Exception as e:
+            print(f"❌ Erro no login: {e}")
             return False
 
     def _check_login(self):
-        """Verifica se a sessão ainda é válida"""
+        """Verifica se ainda está logado"""
         try:
             self.page.goto("https://www.linkedin.com/feed/")
             time.sleep(2)
@@ -165,12 +156,9 @@ class LinkedInCompetitorMonitor:
 
     def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
         """Coleta posts usando a sessão já autenticada"""
-        # Verificar se ainda está logado
         if not self._check_login():
-            print("⚠️ Sessão expirada! Você precisa fazer login manual novamente.")
-            if not self.login():
-                print("❌ Falha no login. Abortando.")
-                return []
+            print("⚠️ Sessão expirada! Faça login novamente.")
+            return []
         
         print(f"\n📊 {company_url.split('/')[-2]}")
         posts_data = []
@@ -181,7 +169,6 @@ class LinkedInCompetitorMonitor:
             self.page.goto(company_url)
             time.sleep(3)
             
-            # Tentar aba de posts
             try:
                 self.page.click("a[href*='posts/']")
                 print("✅ Aba 'posts' clicada")
@@ -208,7 +195,6 @@ class LinkedInCompetitorMonitor:
                 
                 for post in posts[posts_found:]:
                     try:
-                        # Extrair data (segunda parte após "•")
                         date_text = None
                         selectores = [
                             "span.feed-shared-actor__sub-description",
@@ -245,19 +231,16 @@ class LinkedInCompetitorMonitor:
                             print(f"⏹️ Post antigo ({date_text})")
                             return posts_data
                         
-                        # Conteúdo
                         content = ""
                         content_el = post.query_selector("span.break-words, div.feed-shared-inline-show-more-text span")
                         if content_el:
                             content = content_el.inner_text()[:500]
                         
-                        # Likes
                         likes = 0
                         likes_el = post.query_selector("span.social-details-social-counts__reactions-count")
                         if likes_el:
                             likes = self._extract_number(likes_el.inner_text())
                         
-                        # Comentários
                         comments = 0
                         comments_el = post.query_selector("li.social-details-social-counts__comments button")
                         if comments_el:
@@ -295,7 +278,6 @@ class LinkedInCompetitorMonitor:
             return posts_data
 
     def close(self):
-        """Fecha o navegador"""
         if self.browser:
             self.browser.close()
         if self.playwright:
