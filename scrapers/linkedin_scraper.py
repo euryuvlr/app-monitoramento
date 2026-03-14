@@ -3,7 +3,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 import time
 from datetime import datetime, timedelta
@@ -18,23 +17,22 @@ class LinkedInCompetitorMonitor:
         self.wait = WebDriverWait(self.driver, 15)
 
     def _setup_driver(self, headless):
-    from selenium.webdriver.chrome.service import Service
-    options = Options()
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    if headless:
-        options.add_argument("--headless=new")
-        options.add_argument("--window-size=1920,1080")
-    
-    # Caminho fixo do ChromeDriver (instalado no Dockerfile)
-    service = Service('/usr/local/bin/chromedriver')
-    driver = webdriver.Chrome(service=service, options=options)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    return driver
+        options = Options()
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        if headless:
+            options.add_argument("--headless=new")
+            options.add_argument("--window-size=1920,1080")
+        
+        # Caminho fixo do ChromeDriver (instalado no Dockerfile)
+        service = Service('/usr/local/bin/chromedriver')
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        return driver
 
     def login(self):
         try:
@@ -68,8 +66,14 @@ class LinkedInCompetitorMonitor:
             return 0
 
     def _parse_date(self, date_text):
+        """
+        Converte datas abreviadas (ex: "1 d", "2 m", "3 a", "há 2 dias", "1w") para datetime.
+        Retorna None se não reconhecer.
+        """
         date_text = date_text.lower().strip()
         now = datetime.now()
+
+        # Padrão para abreviaturas simples (ex: "1d", "2 m", "3sem")
         padrao_abrev = r"^(\d+)\s*([a-záéíóú]+)$"
         match = re.search(padrao_abrev, date_text)
         if match:
@@ -85,6 +89,8 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num * 365)
             if unid in ['h', 'hora', 'horas']:
                 return now - timedelta(hours=num)
+
+        # Padrão completo em português: "há X dias", "há X meses"
         padrao_port = r"há\s+(\d+)\s+(hora|horas|dia|dias|semana|semanas|mês|meses|ano|anos)"
         match = re.search(padrao_port, date_text)
         if match:
@@ -100,6 +106,8 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*30)
             if unid in ["ano", "anos"]:
                 return now - timedelta(days=num*365)
+
+        # Padrão inglês: "X days ago"
         padrao_eng = r"(\d+)\s+(hour|hours|day|days|week|weeks|month|months|year|years)\s+ago"
         match = re.search(padrao_eng, date_text)
         if match:
@@ -115,9 +123,10 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*30)
             if unid in ["year", "years"]:
                 return now - timedelta(days=num*365)
+
         return None
 
-    def scrape_company_posts(self, company_url, max_posts=50, days_back=7):
+    def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
         print(f"\n📊 {company_url.split('/')[-2]}")
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
@@ -125,6 +134,7 @@ class LinkedInCompetitorMonitor:
         try:
             self.driver.get(company_url)
             time.sleep(2)
+
             # Encontrar aba de posts
             try:
                 posts_tab = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, 'posts/')]")))
@@ -145,10 +155,13 @@ class LinkedInCompetitorMonitor:
             while posts_found < max_posts and scroll_attempts < max_scrolls:
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(1.5)
+
                 posts = self.driver.find_elements(By.CSS_SELECTOR,
                     "li[data-urn], article.feed-shared-update-v2, div.occludable-update")
+
                 for post in posts[posts_found:]:
                     try:
+                        # Extrair data
                         date_text = None
                         selectores_data = [
                             "span.feed-shared-actor__sub-description",
@@ -172,14 +185,19 @@ class LinkedInCompetitorMonitor:
                                     break
                             except:
                                 continue
+
                         if not date_text:
                             continue
+
                         post_date = self._parse_date(date_text)
                         if post_date is None:
                             continue
+
                         if post_date < cutoff:
                             print(f"⏹️ Post antigo ({date_text}). Parando.")
                             return posts_data
+
+                        # Extrair conteúdo
                         content = ""
                         try:
                             content_el = post.find_element(By.CSS_SELECTOR,
@@ -187,6 +205,8 @@ class LinkedInCompetitorMonitor:
                             content = content_el.text[:500]
                         except:
                             pass
+
+                        # Likes
                         likes = 0
                         try:
                             likes_el = post.find_element(By.CSS_SELECTOR,
@@ -194,6 +214,8 @@ class LinkedInCompetitorMonitor:
                             likes = self._extract_number(likes_el.text)
                         except:
                             pass
+
+                        # Comentários
                         comments = 0
                         try:
                             comm_el = post.find_element(By.CSS_SELECTOR,
@@ -201,6 +223,7 @@ class LinkedInCompetitorMonitor:
                             comments = self._extract_number(comm_el.text)
                         except:
                             pass
+
                         posts_data.append({
                             'empresa': company_url.split('/')[-2] if company_url.endswith('/') else company_url.split('/')[-1],
                             'data': post_date.strftime('%Y-%m-%d %H:%M'),
@@ -209,21 +232,26 @@ class LinkedInCompetitorMonitor:
                             'comentarios': comments,
                             'data_raw': date_text
                         })
+
                         posts_found += 1
                         print(f"  ✅ {posts_found}/{max_posts} - {date_text}")
+
                         if posts_found >= max_posts:
                             break
                     except Exception:
                         continue
+
                 new_height = self.driver.execute_script("return document.body.scrollHeight")
                 if new_height == last_height:
                     scroll_attempts += 1
                 else:
                     scroll_attempts = 0
                 last_height = new_height
+
             print(f"✅ Coletados {len(posts_data)} posts")
         except Exception as e:
             print(f"❌ Erro na coleta: {e}")
+
         return posts_data
 
     def close(self):
