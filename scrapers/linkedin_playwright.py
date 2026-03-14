@@ -5,12 +5,14 @@ import re
 import os
 import json
 import streamlit as st
+import subprocess
+import sys
 
 class LinkedInCompetitorMonitor:
     def __init__(self, email, password, headless=True):
         self.email = email
         self.password = password
-        self.headless = headless
+        self.headless = headless  # Sempre True no servidor
         self.playwright = None
         self.browser = None
         self.page = None
@@ -20,12 +22,12 @@ class LinkedInCompetitorMonitor:
         self._setup_driver()
 
     def _setup_driver(self):
-        """Inicializa o Playwright com suporte a sessão persistente"""
+        """Inicializa o Playwright com suporte a sessão persistente - SEMPRE HEADLESS"""
         self.playwright = sync_playwright().start()
         
         self.browser = self.playwright.chromium.launch_persistent_context(
             self.user_data_dir,
-            headless=self.headless,
+            headless=True,  # FORÇADO headless
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
@@ -51,7 +53,7 @@ class LinkedInCompetitorMonitor:
             return False
 
     def login_manual(self, username, password):
-        """Faz login manual com as credenciais fornecidas"""
+        """Tenta login automático - se precisar 2FA, avisa"""
         try:
             print("🔑 Tentando login automático...")
             self.page.goto("https://www.linkedin.com/login")
@@ -63,7 +65,6 @@ class LinkedInCompetitorMonitor:
             
             time.sleep(5)
             
-            # Verificar se precisa de 2FA
             if "checkpoint" in self.page.url:
                 print("⚠️ Verificação em duas etapas detectada.")
                 return "2FA"
@@ -87,6 +88,10 @@ class LinkedInCompetitorMonitor:
             return False
         except:
             return False
+
+    def get_cookies_file(self):
+        """Retorna o caminho do arquivo de cookies"""
+        return os.path.join(self.user_data_dir, "Cookies")
 
     def _extract_number(self, text):
         if not text:

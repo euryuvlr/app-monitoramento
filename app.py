@@ -52,36 +52,27 @@ st.sidebar.header("🔐 Configuração de Login")
 with st.sidebar.expander("Login Manual (uma única vez)", expanded=True):
     st.markdown("""
     **Instruções:**
-    1. Clique em "Abrir LinkedIn"
-    2. Faça login **manualmente** (incluindo código 2FA se necessário)
-    3. Após o login, volte aqui e clique em "Confirmar Login"
+    1. **NO SEU COMPUTADOR LOCAL**, faça login no LinkedIn
+    2. Copie os cookies usando uma extensão (EditThisCookie)
+    3. Cole os cookies no formato JSON abaixo
     """)
     
-    if st.button("🌐 Abrir LinkedIn"):
-        import webbrowser
-        webbrowser.open("https://www.linkedin.com")
-        st.info("✅ Navegador aberto. Faça login manualmente.")
+    cookies_json = st.text_area("Cole os cookies aqui (formato JSON)", height=200)
     
-    if st.button("✅ Confirmar Login"):
-        st.session_state.login_status = "verifying"
-        st.rerun()
-
-if st.session_state.login_status == "verifying":
-    with st.spinner("Verificando sessão..."):
-        monitor = LinkedInCompetitorMonitor(LINKEDIN_EMAIL, LINKEDIN_PASSWORD, headless=False)
-        if monitor.login():
-            st.session_state.login_status = "ok"
-            st.success("✅ Login verificado! Sessão salva.")
-        else:
-            st.session_state.login_status = "failed"
-            st.error("❌ Não foi possível verificar o login. Tente novamente.")
-        monitor.close()
-        st.rerun()
-
-if st.session_state.login_status != "ok":
-    st.warning("⚠️ Configure o login na barra lateral antes de gerar relatórios.")
-    st.stop()
-
+    if st.button("✅ Salvar Cookies"):
+        if cookies_json:
+            try:
+                import json
+                cookies = json.loads(cookies_json)
+                os.makedirs("playwright_data", exist_ok=True)
+                with open("playwright_data/Cookies", "w") as f:
+                    json.dump(cookies, f)
+                st.success("✅ Cookies salvos! Sessão configurada.")
+                st.session_state.login_status = "ok"
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Erro ao salvar cookies: {e}")
+                
 # ========== BOTÃO PRINCIPAL ==========
 if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=True):
     
