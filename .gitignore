@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Arquivos do projeto
+temp_reports/
+*.xlsx
+*.csv
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Credenciais
+.env
+*.env
+config.py.local
