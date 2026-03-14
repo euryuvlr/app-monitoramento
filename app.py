@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import time
 from datetime import datetime
-from scrapers.linkedin_scraper import LinkedInCompetitorMonitor
+from scrapers.linkedin_playwright import LinkedInCompetitorMonitor
 
 # Configuração da página
 st.set_page_config(
