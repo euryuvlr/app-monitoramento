@@ -13,93 +13,91 @@ class LinkedInCompetitorMonitor:
         self.playwright = None
         self.browser = None
         self.page = None
+        self.context = None
         self._setup_driver()
-        self.wait = self.page
 
     def _setup_driver(self):
-        """Inicializa o Playwright (substitui o Selenium)"""
+        """Inicializa o Playwright com suporte a sessão persistente"""
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(
+        
+        # Configurar pasta para salvar sessão
+        user_data_dir = "./playwright_data"
+        os.makedirs(user_data_dir, exist_ok=True)
+        
+        self.browser = self.playwright.chromium.launch_persistent_context(
+            user_data_dir,
             headless=self.headless,
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--window-size=1920,1080'
-            ]
-        )
-        self.context = self.browser.new_context(
+                '--disable-gpu'
+            ],
             user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080}
         )
-        self.page = self.context.new_page()
         
-        # Tentar carregar sessão salva
-        if os.path.exists("linkedin_session.json"):
-            self._load_session()
+        # Abrir uma nova página
+        self.page = self.browser.new_page()
 
-    def _save_session(self):
-        """Salva cookies para reutilizar"""
-        cookies = self.context.cookies()
-        with open("linkedin_session.json", "w") as f:
-            json.dump(cookies, f)
-        print("💾 Sessão salva!")
-
-    def _load_session(self):
-        """Carrega cookies salvos"""
+    def login(self):
+        """
+        FAÇA LOGIN MANUAL UMA ÚNICA VEZ.
+        Depois disso, a sessão será salva e reutilizada automaticamente.
+        """
+        print("="*50)
+        print("🔑 INSTRUÇÕES PARA LOGIN MANUAL")
+        print("="*50)
+        print("O LinkedIn está pedindo verificação (2FA/código).")
+        print("Por favor, faça o login manualmente no navegador que vai abrir.")
+        print("\nPassos:")
+        print("1. Digite seu email e senha NORMALMENTE")
+        print("2. Quando pedir o código de verificação, DIGITE")
+        print("3. Após entrar no feed, volte aqui e pressione ENTER")
+        print("="*50)
+        
+        # Abrir página de login
+        self.page.goto("https://www.linkedin.com/login")
+        time.sleep(2)
+        
+        # Pré-preencher email e senha (opcional, pode fazer manual)
         try:
-            with open("linkedin_session.json", "r") as f:
-                cookies = json.load(f)
-            self.context.add_cookies(cookies)
-            print("🔄 Sessão carregada!")
+            self.page.fill("#username", self.email)
+            self.page.fill("#password", self.password)
+            print("✅ Campos de email/senha preenchidos (confirme se estão corretos)")
+        except:
+            print("⚠️ Preencha email e senha manualmente")
+        
+        print("\n🖥️ FAÇA O LOGIN MANUALMENTE AGORA...")
+        input("⏸️  Pressione ENTER DEPOIS de fazer o login completo (já no feed) >>> ")
+        
+        # Verificar se está no feed
+        current_url = self.page.url
+        if "feed" in current_url:
+            print("✅ Login confirmado! Sessão salva para próximas execuções.")
+            
+            # Salvar cookies explicitamente (já é persistente pelo user_data_dir)
+            cookies = self.context.cookies()
+            with open("linkedin_cookies_backup.json", "w") as f:
+                json.dump(cookies, f)
+            print("💾 Backup de cookies salvo!")
             return True
+        else:
+            print(f"❌ Parece que você não está no feed. URL atual: {current_url}")
+            return False
+
+    def _check_login(self):
+        """Verifica se a sessão ainda é válida"""
+        try:
+            self.page.goto("https://www.linkedin.com/feed/")
+            time.sleep(2)
+            if "feed" in self.page.url:
+                return True
+            return False
         except:
             return False
 
-    def login(self):
-        """Login com fallback para sessão salva"""
-        try:
-            # Tentar primeiro com sessão salva
-            if self._load_session():
-                self.page.goto("https://www.linkedin.com/feed/")
-                time.sleep(3)
-                if "feed" in self.page.url:
-                    print("✅ Login via sessão salva!")
-                    return True
-
-            # Se não funcionou, faz login normal
-            print("🔑 Fazendo login manual...")
-            self.page.goto("https://www.linkedin.com/login")
-            time.sleep(2)
-            
-            self.page.fill("#username", self.email)
-            self.page.fill("#password", self.password)
-            self.page.click("button[type='submit']")
-            
-            # Aguardar e verificar
-            time.sleep(5)
-            
-            if "feed" in self.page.url:
-                print("✅ Login realizado!")
-                self._save_session()
-                return True
-            elif "checkpoint" in self.page.url:
-                print("⚠️ Verificação em duas etapas detectada.")
-                print("💡 Faça login manualmente no navegador que vai abrir...")
-                input("Pressione ENTER quando terminar o login manual...")
-                self._save_session()
-                return True
-            else:
-                print(f"❌ URL após login: {self.page.url}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Erro no login: {e}")
-            return False
-
     def _extract_number(self, text):
-        """Igual ao seu código original"""
         if not text:
             return 0
         text = str(text).replace(",", "").replace(".", "")
@@ -116,7 +114,6 @@ class LinkedInCompetitorMonitor:
             return 0
 
     def _parse_date(self, date_text):
-        """Igual ao seu código original"""
         date_text = date_text.lower().strip()
         now = datetime.now()
         padrao_abrev = r"^(\d+)\s*([a-záéíóú]+)$"
@@ -167,14 +164,20 @@ class LinkedInCompetitorMonitor:
         return None
 
     def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
-        """MESMA interface do seu scraper antigo, mas com Playwright"""
+        """Coleta posts usando a sessão já autenticada"""
+        # Verificar se ainda está logado
+        if not self._check_login():
+            print("⚠️ Sessão expirada! Você precisa fazer login manual novamente.")
+            if not self.login():
+                print("❌ Falha no login. Abortando.")
+                return []
+        
         print(f"\n📊 {company_url.split('/')[-2]}")
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
         posts_found = 0
         
         try:
-            # Ir para página da empresa
             self.page.goto(company_url)
             time.sleep(3)
             
@@ -192,23 +195,20 @@ class LinkedInCompetitorMonitor:
             
             time.sleep(3)
             
-            # Rolar e coletar
             last_height = self.page.evaluate("document.body.scrollHeight")
             scroll_attempts = 0
             max_scrolls = 8
             
             while posts_found < max_posts and scroll_attempts < max_scrolls:
-                # Rolar
                 self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(2)
                 
-                # Encontrar posts
                 posts = self.page.query_selector_all("li[data-urn], article.feed-shared-update-v2, div.occludable-update")
                 print(f"🔄 Encontrados {len(posts)} elementos")
                 
                 for post in posts[posts_found:]:
                     try:
-                        # Extrair data
+                        # Extrair data (segunda parte após "•")
                         date_text = None
                         selectores = [
                             "span.feed-shared-actor__sub-description",
@@ -280,7 +280,6 @@ class LinkedInCompetitorMonitor:
                     except Exception as e:
                         continue
                 
-                # Verificar fim da página
                 new_height = self.page.evaluate("document.body.scrollHeight")
                 if new_height == last_height:
                     scroll_attempts += 1
