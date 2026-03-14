@@ -12,12 +12,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# ========== CREDENCIAIS (vindas dos secrets) ==========
-LINKEDIN_EMAIL = st.secrets["euowlie@gmail.com"]
-LINKEDIN_PASSWORD = st.secrets["Ryuvlr*963,@"]
-GEMINI_API_KEY = st.secrets["AIzaSyDQWWGMVcfZA6VW66iPruZk6Zh-BTR93wY"]
+# ========== CREDENCIAIS (INSERIDAS DIRETAMENTE) ==========
+LINKEDIN_EMAIL = "euowlie@gmail.com"
+LINKEDIN_PASSWORD = "Ryuvlr*963,@"
+GEMINI_API_KEY = "AIzaSyDQWWGMVcfZA6VW66iPruZk6Zh-BTR93wY"
 
-# Lista de empresas (vamos manter fixa aqui, igual antes)
+# Lista de empresas (mantida fixa)
 EMPRESAS = [
     "https://www.linkedin.com/company/atento/",
     "https://www.linkedin.com/company/wearetpgroup/",
@@ -50,12 +50,12 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
     # Criar uma pasta temporária para salvar o relatório
     os.makedirs("temp_reports", exist_ok=True)
     
-    # ===== SIMULAÇÃO DE PROGRESSO =====
+    # ===== PROGRESSO =====
     barra.progress(10)
     status.text("🔑 Fazendo login no LinkedIn...")
     time.sleep(2)
     
-    # Inicializar o monitor (vamos executar de verdade)
+    # Inicializar o monitor
     try:
         monitor = LinkedInCompetitorMonitor(
             email=LINKEDIN_EMAIL,
@@ -86,10 +86,9 @@ if st.button("🚀 GERAR RELATÓRIO AGORA", type="primary", use_container_width=
                 barra.progress(100)
             else:
                 barra.progress(70)
-                status.text("🧠 Analisando posts com IA (Gemini)...")
+                status.text("📊 Organizando dados...")
                 
-                # ===== AQUI VOCÊ PODE INSERIR A ANÁLISE COM GEMINI =====
-                # Por enquanto, vamos criar um DataFrame simples
+                # Criar DataFrame
                 df = pd.DataFrame(todos_posts)
                 
                 # Selecionar e renomear colunas
