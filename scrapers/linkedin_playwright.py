@@ -164,14 +164,27 @@ class LinkedInCompetitorMonitor:
                 return now - timedelta(days=num*365)
         return None
 
+    def check_page_status(self):
+        """Verifica o status atual da página para diagnóstico"""
+        try:
+            return {
+                'url': self.page.url,
+                'title': self.page.title(),
+                'cookies': len(self.context.cookies()),
+                'html_length': len(self.page.content())
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
     def scrape_company_posts(self, company_url, max_posts=30, days_back=7):
-        print(f"🔍 Status da página: {self.check_page_status()}")
         """Coleta posts usando a sessão já autenticada"""
         if not self._check_login():
             print("⚠️ Sessão expirada! Faça login novamente.")
             return []
         
         print(f"\n📊 {company_url.split('/')[-2]}")
+        print(f"🔍 Status da página: {self.check_page_status()}")
+        
         posts_data = []
         cutoff = datetime.now() - timedelta(days=days_back)
         posts_found = 0
@@ -336,18 +349,6 @@ class LinkedInCompetitorMonitor:
             import traceback
             traceback.print_exc()
             return posts_data
-
-            def check_page_status(self):
-    """Verifica o status atual da página para diagnóstico"""
-    try:
-        return {
-            'url': self.page.url,
-            'title': self.page.title(),
-            'cookies': len(self.context.cookies()),
-            'html_length': len(self.page.content())
-        }
-    except:
-        return {'error': 'Página não disponível'}
 
     def close(self):
         if self.browser:
